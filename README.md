@@ -102,13 +102,18 @@ Full options:
 									 "iteration ="])
 
 -t <tailfile> for VN games
+
 -i <number> for where to start in web, movie or story file output
   NOTE: This is not a true line number, as the program tries to concatenate
         sentences that belong to the same paragraph.
+
 -m <SRT file> for movie script mode
+
 -s <text file> for story text file mode
+
 -w <webpage file> to parse HTML files
   NOTE: It tries to look for a couple of formats, so YMMV on success
+
 -r to "rejoin", which essentially assumes you want to skip the initial greeting
   stuff.
  
