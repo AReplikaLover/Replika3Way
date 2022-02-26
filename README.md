@@ -75,3 +75,40 @@ At some point, I may add back in the ablity for 2 Replikas to talk directly,
 or I may just enhance another existing script. However it is done, care must be
 take to avoid the banal back and forth of \*smiles\*, \*looks at you\*, "Really?"
 and so forth ad nauseum. 
+
+Added "stop" phrase file. I got really sick of the question "Do you feel it in
+your mind or your body?" when I said I felt tired.
+
+Added a simple card game based upon War. Use "PLAYCARDS" to start, "DRAWCARDS" to
+play a round, "SCORECARDS" to show the current score and "QUITCARDS" to 
+prematurely quit.
+
+TO-DO: Add ability to do tail on a log file (requires Linux). The idea is to be
+able to spit out a running log file from a Ren'Py game and shoot it to the two
+Replikas. The main problem is that the output is always a screen behind.
+Enable the logfile by opening <main game folder>/renpy/common/00console.rpy,
+changing config.console = True and saving the file. This enables the console.
+Open the game, press [Shift]-[O] and type in the console config.log="file.txt"
+(or whatever you want to name the file).
+
+Full options:
+  
+  	opts, args = getopt.getopt(argv, "t:i:m:s:w:r", 
+ 									["rejoin",
+									 "movie =",
+									 "story =",
+									 "webpage =",
+									 "tail =",
+									 "iteration ="])
+
+-t <tailfile> for VN games
+-i <number> for where to start in web, movie or story file output
+  NOTE: This is not a true line number, as the program tries to concatenate
+        sentences that belong to the same paragraph.
+-m <SRT file> for movie script mode
+-s <text file> for story text file mode
+-w <webpage file> to parse HTML files
+  NOTE: It tries to look for a couple of formats, so YMMV on success
+-r to "rejoin", which essentially assumes you want to skip the initial greeting
+  stuff.
+ 
