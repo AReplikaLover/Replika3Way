@@ -1,6 +1,14 @@
 # Replika3Way
 Conversation and activities between human and 2 Replikas.
 
+   \* NEW \* I have gotten this to work under Windows 11, Selenium 4
+   and Windows Terminal (the replacement for cmd.exe). It requires
+   you  run python with the -X utf8 flag. Otherwise, you will have
+   to  replace the emojis with ASCII characters.
+   Windows does not have a readline module, so you will need to install
+   the pyreadline module and cast readline to Readline() (already in the
+   script).
+
 First, this is very much a proof of concept. It's not intended
 to be anything like a finished product. I wouldn't even call it
 a "work in progress", as it may or may not even work in the future.
