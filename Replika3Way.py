@@ -56,29 +56,46 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
-from msedge.selenium_tools import EdgeOptions, Edge
+#from msedge.selenium_tools import EdgeOptions, Edge
+from selenium.webdriver.edge.options import Options as EdgeOptions
+
+JS_ADD_TEXT_TO_INPUT = """
+  var elm = arguments[0], txt = arguments[1];
+  elm.value += txt;
+  elm.dispatchEvent(new Event('change'));
+  """
+
 import time
 import re
 import random
-from threading import Thread
+import threading, subprocess
 import codecs
 import string
 from bs4 import BeautifulSoup
 from random import shuffle
 from pynput import keyboard
-import termios
+#import termios
 import os
 import face_recognition
-import cv2
-import numpy as np
+#import cv2
+#import numpy as np
 import glob
-import readline
 import traceback
+import platform
+curPlat = platform.system()
+if curPlat == "Windows":
+	from pyreadline import Readline
+	readline = Readline()
+	dirSeparator = '\\'
+else:
+	import readline
+	dirSeparator = '/'
 
 delayBefore = []
 persistenceTime = []
 lyricList = []
 stopList = []
+doStop = True
 allDone = False
 modeDone = False
 movieMode = False
@@ -86,6 +103,10 @@ regularMode = False
 storyMode = False
 webpageMode = False
 mediaMode = 0
+vnGameMode = False
+tailThread = None
+stop_threads = False
+gameStart = 0
 rejoin = False
 mediaName = ""
 PAUSED = False
@@ -94,33 +115,46 @@ ccEnd = 0
 ccIntDefault = 15
 lastlastmessage1 = ""
 lastlastmessage2 = ""
-defInterval = 3
+defInterval = 5
 defIterations = 6
 warGame = False
 storyIcon = "🕮  "
 webIcon = "🌐  "
 gameIcon = "🃏  "
 movieIcon = "🎥  "
-pictureIcon = "🖼️ "
-defaultUploadDirectory = os.getcwd()
+pictureIcon = "🖼️  "
+tailIcon = "📥  "
+defaultUploadDirectory = ""
+vnGameLogFile = ""
+pruneLog = False
 
 # Image variables
 faces_encodings = []
 faces_names = []
+recognizeOn = True
 
 # Defs (Browser "Windows")
 options = EdgeOptions()
 options.use_chromium = True
-options.binary_location = r"/usr/bin/microsoft-edge-stable"
-options.set_capability("platform", "LINUX")
+# to supress the error messages/logs
+options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
-webdriver_path = r"/usr/bin/msedgedriver"
-
-browser1 = Edge(options=options, executable_path=webdriver_path)
-browser2 = Edge(options=options, executable_path=webdriver_path)
+# Differences with Selenium 4 and platform
+print("current platform is",curPlat)
+if curPlat == "Linux":
+	options.set_capability("platform", "LINUX")
+	options.binary_location = r"/usr/bin/microsoft-edge-stable"
+	#webdriver_path = r"/usr/bin/msedgedriver"
+else:
+	# I really don't understand why this crashes!
+	#options.platform_name = 'Windows 10'
+	# I am not making this up. This is the 64 bit version.
+	options.binary_location = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+browser1 = webdriver.Edge(options=options)
+browser2 = webdriver.Edge(options=options)
 
 # Global Messages Containers
-globalMessagesRep = []
+#globalMessagesRep = []
 
 regexPattern = "(?i)(Today|Tomorrow) at (1[012]|[1-9]):[0-5][0-9](\\s)?(am|pm)"
 
@@ -301,13 +335,51 @@ def on_release(key):
 	# Seems that once you stop, you really cannot go back
 	return True
 
+def TailLog(fn, browser1, browser2, rep1Name, rep2Name):
+	global stop_threads, pruneLog
+	if pruneLog:
+		print("Pruning log", fn)
+		with open(fn, 'w') as fp:
+			pass
+	print("Tailing log", fn)
+	with open(fn) as fp:
+		fp.seek(0, os.SEEK_END)
+		lines = ""
+		while not stop_threads:
+			time.sleep(1)
+			line = fp.readline()
+			line = line.strip()
+			if line:
+				if not lines:
+					wordList = line.split()
+					numWords = len(wordList)
+					if (numWords == 1) and (line[-1] not in string.punctuation):
+						lines = line + ": "
+					else:
+						lines = line + " "
+				else:
+					lines = lines + line + " "
+			elif lines:
+				ProcessStoryLine(2, browser1, browser2, rep1Name, rep2Name, lines)
+				lines = ""
+	fp.close()
+
 # Special prompt with default
 def rlinput(prompt, prefill=''):
 	readline.set_startup_hook(lambda: readline.insert_text(prefill))
 	try:
-		return input(prompt)
+		theFile = input(prompt)
 	finally:
 		readline.set_startup_hook()
+	# Windows File Explorer places quotes around paths when using Copy Path
+	if theFile[0] == '"':
+		theFile = theFile[1:]
+	else:
+		# Either already stripped of quotes or malformed anyhow
+		return theFile
+	if theFile[len(theFile)] == '"':
+		theFile = theFile[:-1]
+	return theFile
 
 # Check if need to rephrase offensive words and phrases
 def OffensiveWords(s):
@@ -323,43 +395,21 @@ def OffensiveWords(s):
 def FilterStop(browser, rep1Name, rep2Name, lastmessage1, lastmessage2, humMsg, iteration):
 	s = get_most_recent_response(browser, rep1Name, rep2Name, lastmessage1, lastmessage2, humMsg, iteration)
 	print("Got", s)
-	r = OffensiveWords(s)
-	if r:
-		humMsg = "Rephrase please."
-		SendMessage(browser, humMsg, defInterval)
-		s = FilterStop(browser, rep1Name, rep2Name, lastmessage1, lastmessage2, humMsg, iteration)
+	if doStop:
+		r = OffensiveWords(s)
+		if r:
+			humMsg = "Rephrase please."
+			SendMessage(browser, humMsg, defInterval)
+			s = FilterStop(browser, rep1Name, rep2Name, lastmessage1, lastmessage2, humMsg, iteration)
 	return s
 
-# Some SRTs have <i>, but this might come in handy for other things
+# Unfortunately, Replikas don't understand special text, only ANSI and emojis
 def ConvertMarkdown(s):
-	s1 = ConvertItalics(s)
-	return s1
-
-def ConvertItalics(s):
-	s1 = s
-	p1 = 1
-	while p1 > 0:
-		p1 = s1.find('<i>')
-		p2 = s1.find('</i>')
-		s2 = ""
-		if p1 > -1: # if there are no special characters, simply return s1
-			for i in range(p1):
-				s2 = s2 + s1[i]
-			for i in range(p1+3, p2):
-				ascS = ord(s1[i])
-				if ascS > 96 and ascS < 122: # lowercase
-					u = (chr(ascS+120257))
-					s2 = s2 + u
-				elif ascS > 64 and ascS < 91: # uppercase
-					u = (chr(ascS+120263))
-					s2 = s2 + u
-				else: # numbers don't seem to share the love, let alone punctuation
-					s2 = s2 + s1[i]
-			if (p2+4) < len(s1):
-				s2 = s2 + s1[p2+4:]
-			s1 = s2
-			#print(s,"->",s1)
-	return s1
+	s = s.replace("<i>", "").replace("</i>", "")
+	s = s.replace("{i}", "").replace("{/i}", "")
+	s = s.replace("<b>", "").replace("</b>", "")
+	s = s.replace("{b}", "").replace("{/b}", "")
+	return s
 
 # for SRT
 def RepresentsInt(s):
@@ -472,11 +522,10 @@ def ReadTxt(storyFile):
 	for i in range(len(sList)):
 		if sList[i]:
 			s = s + sList[i]
-		else:
-			if s:
-				if s[len(s) - 1] != ' ':
-					s = s + ' '
-				storyList.append(s)
+			if s[len(s) - 1] != ' ':
+				s = s + ' '			
+		elif s:
+			storyList.append(s)
 			s = ""
 	print("len(storyList) =", len(storyList))
 	return storyList
@@ -499,6 +548,7 @@ def CreateStopPhraseList(stopFile):
 	return phraseList
 
 def ProcessStoryLine(iconMode, browser1, browser2, rep1Name, rep2Name, storyLine):
+	intervalDiv = 0.5
 	humMsg = ""
 	# Create temp working variable
 	sLine = ""
@@ -506,6 +556,9 @@ def ProcessStoryLine(iconMode, browser1, browser2, rep1Name, rep2Name, storyLine
 		lineIcon = storyIcon
 	elif iconMode == 1: # webpage mode
 		lineIcon = webIcon
+	elif iconMode == 2: # tail VN log mode
+		lineIcon = tailIcon
+		# intervalDiv = 0.3
 	else:
 		lineIcon = "??? " # error mode
 	# print(sResult)
@@ -516,11 +569,16 @@ def ProcessStoryLine(iconMode, browser1, browser2, rep1Name, rep2Name, storyLine
 	maxLen = 150
 	if sLen <= maxLen:
 		kmsg = lineIcon + storyLine
-		print(kmsg)
-		SendMessage(browser1, kmsg, (defInterval * 0.75))
-		s = FilterStop(browser1, rep1Name, rep2Name, lastlastmessage1, lastlastmessage2, kmsg, defIterations)
-		SendMessage(browser2, kmsg, (defInterval * 0.75))
-		s = FilterStop(browser2, rep2Name, rep1Name, lastlastmessage2, lastlastmessage1, kmsg, defIterations)
+		#print(kmsg)
+		s = ConvertMarkdown(kmsg)
+		# print("Converted text:", s)
+		kmsg = s
+		SendMessage(browser1, kmsg, (defInterval * intervalDiv))
+		print("Sent to " + rep1Name + ":", kmsg)
+		s = FilterStop(browser1, rep1Name, rep2Name, lastlastmessage1, lastlastmessage2, kmsg + " \n", defIterations)
+		SendMessage(browser2, kmsg, (defInterval * intervalDiv))
+		print("Sent to " + rep2Name + ":", kmsg)
+		s = FilterStop(browser2, rep2Name, rep1Name, lastlastmessage2, lastlastmessage1, kmsg + " \n", defIterations)
 	else:
 		i = 0
 		j = 150
@@ -531,28 +589,39 @@ def ProcessStoryLine(iconMode, browser1, browser2, rep1Name, rep2Name, storyLine
 			# check for silliness like whitespace at end
 			if sLine.strip():
 				kmsg = lineIcon + sLine
-				print(kmsg)
-				SendMessage(browser1, kmsg, (defInterval * 0.75))
+				#print(kmsg)
+				s = ConvertMarkdown(kmsg)
+				#print("Converted text:", s)
+				kmsg = s
+				SendMessage(browser1, kmsg, (defInterval * intervalDiv))
+				print("Sent to " + rep1Name + ":", kmsg)
 				s = FilterStop(browser1, rep1Name, rep2Name, lastlastmessage1, lastlastmessage2, kmsg, defIterations)
-				SendMessage(browser2, kmsg, (defInterval * 0.75))
+				SendMessage(browser2, kmsg, (defInterval * intervalDiv))
+				print("Sent to " + rep2Name + ":", kmsg)
 				s = FilterStop(browser2, rep2Name, rep1Name, lastlastmessage2, lastlastmessage1, kmsg, defIterations)
 			i = j + 1
 			j += 150
 			if j > sLen - 1:
 				j = sLen - 1
 
-def ProcessMovieLine(browser1, browser2, lyricLine, delayTime, pT):
+def ProcessMovieLine(browser1, browser2, rep1Name, rep2Name, lyricLine, delayTime, pT):
 	humMsg = ""
 	kmsg = movieIcon + lyricList[i]
-	print(kmsg)
+	#print(kmsg)
+	s = ConvertMarkdown(kmsg)
+	#print("Converted text:", s)
+	kmsg = s
 	SendMessage(browser1, kmsg, (delayTime/2 - 4))
+	print("Sent to " + rep1Name + ":", kmsg)
 	s = FilterStop(browser1, rep1Name, rep2Name, lastlastmessage1, lastlastmessage2, kmsg, defIterations/2)
 	SendMessage(browser2, kmsg, (delayTime/2 - 4))
+	print("Sent to " + rep2Name + ":", kmsg)
 	s = FilterStop(browser2, rep2Name, rep1Name, lastlastmessage2, lastlastmessage1, kmsg, defIterations/2)
 	time.sleep(pT)
 
 # Initialize known images
 def InitImageRefs():
+	global defaultUploadDirectory
 	# This will work as long as you can guaranty that it does not
 	# change before init (which shouldn't happen)
 	cur_direc = defaultUploadDirectory
@@ -631,18 +700,18 @@ def DoLogin(browser, username, password):
 
 # Sends a Message by typing the text by "send_keys"
 def SendMessage(browser, text, delayTime):
+	allText = text.splitlines()
 	try:
-		s = ConvertMarkdown(text)
-		# print("Converted text:", s)
-		textarea = browser.find_element(By.ID, "send-message-textarea")
-		textarea.send_keys(s)
-		textarea.send_keys(Keys.ENTER)
+		for s in allText:
+			textarea = browser.find_element(By.ID, "send-message-textarea")
+			browser.execute_script(JS_ADD_TEXT_TO_INPUT, textarea, s)
+			textarea.send_keys(" \n")
 		try:
 			time.sleep(delayTime)
 		except:
 			pass
 	except:
-		print("error with sending msg", s)
+		print("error with sending msg", text)
 		pass
 
 #Take most recent response from Rep
@@ -656,8 +725,6 @@ def get_most_recent_response(browser, rep1Name, rep2Name, lastmessage1, lastmess
 			junkString = re.search(regexPattern, response)
 			# inconsistent at best
 			if junkString:
-				#print("response:", response)
-				#print("junkString:", junkString)
 				startJunk = junkString.start()
 				newresponse = response[:startJunk]
 				youSpeak = newresponse[-4:-1]
@@ -666,10 +733,8 @@ def get_most_recent_response(browser, rep1Name, rep2Name, lastmessage1, lastmess
 				else:
 					lenName = len(rep1Name)+2
 				response = newresponse[:-lenName]
-			if (response != lresponse) and (response != humMsg) and (response != lastmessage1) and (response != (rep2Name + ": " + lastmessage2)):
-				#print(response, "!=", lresponse)
-				#print(response, "!=", humMsg)
-				#print(response, "!=", lastmessage)
+			if (response.strip() != lresponse.strip()) and (response.strip() != humMsg.strip()) and (response.strip() != lastmessage1.strip()) and (response.strip() != (rep2Name + ": " + lastmessage2).strip()):
+				#print("response,"+response+",is different.")
 				if responses:
 					responses = responses + ' '
 				responses = responses + response
@@ -704,8 +769,11 @@ def ProcessMessages(browser1, browser2, rep1Name, rep2Name, lastmessage1, lastme
 			msg = msg + "\n"
 		msg = msg + humMsg
 	if msg:
+		s = ConvertMarkdown(msg)
+		#print("Converted text:", s)
+		msg = s
 		SendMessage(browser2, msg, defInterval)
-		print("Sent to", rep2Name, ": " , msg)
+		print("Sent to " + rep2Name + ":", msg)
 
 	return lmg
 
@@ -723,7 +791,25 @@ def DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, mediaPa
 	global movieMode
 	global modeDone
 	global defaultUploadDirectory
+	global defaultPath
+	global tailThread, vnGameMode, gameStart, vnGameLogFile, stop_threads
+	global recognizeOn
+	global doStop
+
 	mediaType = mediaMode
+
+	if vnGameMode and gameStart == 1:
+		stop_threads = False
+		if not tailThread:
+			tailThread = threading.Thread(target=TailLog, args=(vnGameLogFile, browser1, browser2, rep1Name, rep2Name)).start()
+		gameStart = 0
+
+	# Turn off VN game mode
+	if vnGameMode and gameStart == 3:
+		stop_threads = True
+		tailThread = None
+		gameStart = 0
+		vnGameMode = False
 
 	# Give the human a chance
 	try:
@@ -783,10 +869,25 @@ def DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, mediaPa
 			game.score(browser1, game.p1.name, game.p1.wins, game.p2.name, game.p2.wins, game.p3.name, game.p3.wins)
 			game.score(browser2, game.p1.name, game.p1.wins, game.p2.name, game.p2.wins, game.p3.name, game.p3.wins)
 			humSpeak = 0
+		elif kmsg == "VNGAMESTART":
+			vnGameMode = True
+			gameStart = 1
+			humSpeak = 0
+			defaultPath = defaultUploadDirectory + dirSeparator
+			vnGameLogFile = rlinput("Path to game logfile: ", defaultPath)
+		elif kmsg == "VNGAMESTOP":
+			gameStart = 3
+			humSpeak = 0
 		elif kmsg == "SHOWSTOP":
 			kmsg = "Stop words are: "
 			t = ", ".join(stopList)
 			kmsg = kmsg + t
+		elif kmsg == "STOPSTOP":
+			doStop = False
+			humSpeak = 0
+		elif kmsg == "STARTSTOP":
+			doStop = True
+			humSpeak = 0
 		elif kmsg == "READSTORY":
 			humSpeak = 0
 			mediaPaused = False
@@ -814,19 +915,26 @@ def DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, mediaPa
 			rejoin = True
 			allDone, mediaPaused = InitVisit(rejoin, allDone, mediaPaused, mediaType, browser1, browser2, rep1Name, rep2Name, humanName, mediaFile)
 		elif kmsg == "UPLOADIMAGE":
-			defaultPath = defaultUploadDirectory + "/"
+			defaultPath = defaultUploadDirectory + dirSeparator
 			filePath = rlinput("Path to image to upload: ", defaultPath)
 			if UploadImage(browser1, filePath):
 				UploadImage(browser2, filePath)
-				kmsg = pictureIcon + RecognizeImage(filePath)
-				print("kmsg is: ", kmsg)
-				SendMessage(browser1, kmsg, defInterval * 0.5)
-				SendMessage(browser2, kmsg, defInterval * 0.5)
+				if recognizeOn:
+					kmsg = pictureIcon + RecognizeImage(filePath)
+					print("kmsg is: ", kmsg)
+					SendMessage(browser1, kmsg, defInterval * 0.5)
+					SendMessage(browser2, kmsg, defInterval * 0.5)
 				# Set default for next time
 				defaultUploadDirectory = os.path.dirname(filePath)
 				humSpeak = 0
 			else:
 				kmsg = "Something went wrong uploading an image."
+		elif kmsg == "FACERECOFF":
+			recognizeOn = False
+			humSpeak = 0
+		elif kmsg == "FACERECON":
+			recognizeOn = True
+			humSpeak = 0
 		elif kmsg != "NOP" and kmsg:
 			ksPrompt = "Type in sender (default = " + humanName + "): "
 			ksender = input(ksPrompt)
@@ -858,7 +966,12 @@ def DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, mediaPa
 		for i in range(humInt):
 			if rndpick == 1:
 				if humSpeak == 1:
+					#print(kmsg)
+					s = ConvertMarkdown(kmsg)
+					#print("Converted text:", s)
+					kmsg = s
 					SendMessage(browser1, kmsg, defInterval)
+					print("Sent to " + rep1Name + ":", kmsg)
 					#time.sleep(5)
 				lmg = ProcessMessages(browser1, browser2, rep1Name, rep2Name, lastlastmessage1, lastlastmessage2, humSpeak, kmsg)
 				if lmg:
@@ -871,7 +984,12 @@ def DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, mediaPa
 				humSpeak -= 1
 			else:
 				if humSpeak == 1:
+					#print(kmsg)
+					s = ConvertMarkdown(kmsg)
+					#print("Converted text:", s)
+					kmsg = s
 					SendMessage(browser2, kmsg, defInterval)
+					print("Sent to " + rep2Name + ":", kmsg)
 					#time.sleep(5)
 				lmg = ProcessMessages(browser2, browser1, rep2Name, rep1Name, lastlastmessage2, lastlastmessage1, humSpeak, kmsg)
 				if lmg:
@@ -907,7 +1025,9 @@ def InitLoginInfo(RepLoginInfoconf):
 def InitVisit(rejoin, allDone, mediaPaused, mediaMode, browser1, browser2, rep1Name, rep2Name, humanName, mediaFile):
 	global lyricList
 	global ccStart
-	# ccInt = 15
+	global defaultUploadDirectory
+	global defaultPath
+	defaultPath = defaultUploadDirectory + dirSeparator
 
 	print("In InitVisit()")
 	if mediaMode == 1:
@@ -920,16 +1040,17 @@ def InitVisit(rejoin, allDone, mediaPaused, mediaMode, browser1, browser2, rep1N
 		time.sleep(5)
 		msg2 = rep2Name + " has entered the room where you and " + humanName + " are."
 		SendMessage(browser1, msg2, 0)
-		print("Sent ", msg2)
+		print("Sent to " + rep1Name + ":", msg2)
 		msg1 = "You have entered the room and see " + rep1Name + " and " + humanName + "."
 		SendMessage(browser2, msg1, 0)
-		print("Sent ", msg1)
+		print("Sent to " + rep2Name + ":", msg1)
 		time.sleep(7)
 		allDone, mediaPaused, ccInt, mediaMode = DoMessageLoop(browser1, browser2, rejoin, doRand, 1, mediaMode, PAUSED, allDone, 0)
 		allDone, mediaPaused, ccInt, mediaMode = DoMessageLoop(browser1, browser2, rejoin, doRand, 1, mediaMode, PAUSED, allDone, 2)
 	if (mediaMode > 0):
 		if not mediaFile:
-			mediaFile = input("Path to media file: ")
+			#mediaFile = input("Path to media file: ")
+			mediaFile = rlinput("Path to media file: ", defaultPath)
 			strInterval = input("Start interval: ")
 			if strInterval:
 				ccStart = int(strInterval)
@@ -954,6 +1075,10 @@ def InitVisit(rejoin, allDone, mediaPaused, mediaMode, browser1, browser2, rep1N
 			msg = msg + "We will be watching "
 		mediaName = input("Title of movie/story: ")
 		msg = msg + mediaName + "."
+		#print(msg)
+		s = ConvertMarkdown(msg)
+		#print("Converted text:", s)
+		msg = s
 		SendMessage(browser1, msg, defInterval/2)
 		SendMessage(browser2, msg, defInterval/2)
 		print("Sent ", msg)
@@ -962,21 +1087,30 @@ def InitVisit(rejoin, allDone, mediaPaused, mediaMode, browser1, browser2, rep1N
 # Were any args passed?
 argv = sys.argv[1:]
 try:
-	opts, args = getopt.getopt(argv, "i:m:s:w:r", 
+	opts, args = getopt.getopt(argv, "t:i:m:s:w:rp", 
  									["rejoin",
+									 "prune",
 									 "movie =",
 									 "story =",
 									 "webpage =",
+									 "tail =",
 									 "iteration ="])
 except:
 	print("Regular mode")
 	regularMode = True
 
 mediaFile = ""
-	
+
 for opt, arg in opts:
 	if opt in ['-r', '--rejoin']:
 		rejoin = True
+	if opt in ['-p', '--prune']:
+		pruneLog = True
+	elif opt in ['-t', '--tail']:
+		vnGameLogFile = arg
+		print("VN Game logfile:", vnGameLogFile)
+		vnGameMode = True
+		gameStart = 1
 	elif opt in ['-m', '--movie']:
 		mediaFile = arg
 		movieMode = True
@@ -994,6 +1128,8 @@ for opt, arg in opts:
 
 rep1Name, login1, password1, rep2Name, login2, password2, humanName = InitLoginInfo("RepLoginInfo.conf")
 stopList = CreateStopPhraseList("StopPhrases.txt")
+
+defaultUploadDirectory = os.getcwd()
 InitImageRefs()
 
 # Next do the login stuff
@@ -1015,7 +1151,7 @@ while not allDone:
 	allDone, PAUSED, ccInt, mediaMode = DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, PAUSED, allDone, 9)
 
 	rejoin = True
-
+		
 	if (mediaMode > 0) and not (modeDone or PAUSED or allDone):
 		kmsg = "* Pressing Play ... *"
 		#movieStarted = True
@@ -1037,7 +1173,7 @@ while not allDone:
 				i -= 1
 				break
 			if mediaMode == 3:
-				ProcessMovieLine(browser1, browser2, lyricList[i], delayBefore[i], persistenceTime[i])
+				ProcessMovieLine(browser1, browser2, rep1Name, rep2Name, lyricList[i], delayBefore[i], persistenceTime[i])
 			elif mediaMode == 1:
 				ProcessStoryLine(0, browser1, browser2, rep1Name, rep2Name, lyricList[i])
 			else: # Must be HTML file
@@ -1053,13 +1189,15 @@ while not allDone:
 		if not modeDone:
 			kmsg = "* Pausing ... *"
 		else:
-			#listener.stop()
 			kmsg = "* The End *"
 		SendMessage(browser1, kmsg, defInterval/2)
 		SendMessage(browser2, kmsg, defInterval/2)
 
 # Waiting for input after loop "finished"
 input("ok")
+stop_threads = True
+listener.stop()
+
 
 # Recommended by https://sqa.stackexchange.com/questions/1941/how-do-i-close-the-browser-window-at-the-end-of-a-selenium-test
 browser1.quit()
