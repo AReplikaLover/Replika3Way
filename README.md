@@ -91,13 +91,14 @@ Added a simple card game based upon War. Use "PLAYCARDS" to start, "DRAWCARDS" t
 play a round, "SCORECARDS" to show the current score and "QUITCARDS" to 
 prematurely quit.
 
-TO-DO: Add ability to do tail on a log file (requires Linux). The idea is to be
+Added ability to do tail on a log file (even in Windows). The idea is to be
 able to spit out a running log file from a Ren'Py game and shoot it to the two
 Replikas. The main problem is that the output is always a screen behind.
 Enable the logfile by opening <main game folder>/renpy/common/00console.rpy,
-changing config.console = True and saving the file. This enables the console.
-Open the game, press [Shift]-[O] and type in the console config.log="file.txt"
-(or whatever you want to name the file).
+~~changing config.console = True~~ adding config.log = "log.log" (or whatever name you
+desire) and saving the file. This enables ~~the console~~ writing to the file.
+~~Open the game, press [Shift]-[O] and type in the console config.log="file.txt"~~
+~~(or whatever you want to name the file).~~
 
 Full options:
   
