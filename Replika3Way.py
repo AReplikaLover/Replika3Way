@@ -82,6 +82,7 @@ import face_recognition
 import glob
 import traceback
 import platform
+from pyautogui import typewrite
 curPlat = platform.system()
 if curPlat == "Windows":
 	from pyreadline import Readline
@@ -115,8 +116,8 @@ ccEnd = 0
 ccIntDefault = 15
 lastlastmessage1 = ""
 lastlastmessage2 = ""
-defInterval = 5
-defIterations = 6
+defInterval = 6
+defIterations = 7
 warGame = False
 storyIcon = "🕮  "
 webIcon = "🌐  "
@@ -366,18 +367,22 @@ def TailLog(fn, browser1, browser2, rep1Name, rep2Name):
 
 # Special prompt with default
 def rlinput(prompt, prefill=''):
-	readline.set_startup_hook(lambda: readline.insert_text(prefill))
-	try:
-		theFile = input(prompt)
-	finally:
-		readline.set_startup_hook()
+	print("prefill:", prefill)
+	#readline.set_startup_hook(lambda: readline.insert_text(prefill))
+	#try:
+	#	theFile = input(prompt)
+	#finally:
+	#	readline.set_startup_hook()
+	print(prompt)
+	typewrite(prefill)
+	theFile = input()
 	# Windows File Explorer places quotes around paths when using Copy Path
 	if theFile[0] == '"':
 		theFile = theFile[1:]
 	else:
 		# Either already stripped of quotes or malformed anyhow
 		return theFile
-	if theFile[len(theFile)] == '"':
+	if theFile[len(theFile)-1] == '"':
 		theFile = theFile[:-1]
 	return theFile
 
@@ -399,7 +404,7 @@ def FilterStop(browser, rep1Name, rep2Name, lastmessage1, lastmessage2, humMsg, 
 		r = OffensiveWords(s)
 		if r:
 			humMsg = "Rephrase please."
-			SendMessage(browser, humMsg, defInterval)
+			SendMessage("lastresponse", browser, humMsg, defInterval)
 			s = FilterStop(browser, rep1Name, rep2Name, lastmessage1, lastmessage2, humMsg, iteration)
 	return s
 
@@ -573,11 +578,11 @@ def ProcessStoryLine(iconMode, browser1, browser2, rep1Name, rep2Name, storyLine
 		s = ConvertMarkdown(kmsg)
 		# print("Converted text:", s)
 		kmsg = s
-		SendMessage(browser1, kmsg, (defInterval * intervalDiv))
-		print("Sent to " + rep1Name + ":", kmsg)
+		SendMessage(rep1Name, browser1, kmsg, (defInterval * intervalDiv))
+		#print("Sent to " + rep1Name + ":", kmsg)
 		s = FilterStop(browser1, rep1Name, rep2Name, lastlastmessage1, lastlastmessage2, kmsg + " \n", defIterations)
-		SendMessage(browser2, kmsg, (defInterval * intervalDiv))
-		print("Sent to " + rep2Name + ":", kmsg)
+		SendMessage(rep2Name, browser2, kmsg, (defInterval * intervalDiv))
+		#print("Sent to " + rep2Name + ":", kmsg)
 		s = FilterStop(browser2, rep2Name, rep1Name, lastlastmessage2, lastlastmessage1, kmsg + " \n", defIterations)
 	else:
 		i = 0
@@ -593,11 +598,11 @@ def ProcessStoryLine(iconMode, browser1, browser2, rep1Name, rep2Name, storyLine
 				s = ConvertMarkdown(kmsg)
 				#print("Converted text:", s)
 				kmsg = s
-				SendMessage(browser1, kmsg, (defInterval * intervalDiv))
-				print("Sent to " + rep1Name + ":", kmsg)
+				SendMessage(rep1Name, browser1, kmsg, (defInterval * intervalDiv))
+				#print("Sent to " + rep1Name + ":", kmsg)
 				s = FilterStop(browser1, rep1Name, rep2Name, lastlastmessage1, lastlastmessage2, kmsg, defIterations)
-				SendMessage(browser2, kmsg, (defInterval * intervalDiv))
-				print("Sent to " + rep2Name + ":", kmsg)
+				SendMessage(rep2Name, browser2, kmsg, (defInterval * intervalDiv))
+				#print("Sent to " + rep2Name + ":", kmsg)
 				s = FilterStop(browser2, rep2Name, rep1Name, lastlastmessage2, lastlastmessage1, kmsg, defIterations)
 			i = j + 1
 			j += 150
@@ -611,21 +616,19 @@ def ProcessMovieLine(browser1, browser2, rep1Name, rep2Name, lyricLine, delayTim
 	s = ConvertMarkdown(kmsg)
 	#print("Converted text:", s)
 	kmsg = s
-	SendMessage(browser1, kmsg, (delayTime/2 - 4))
-	print("Sent to " + rep1Name + ":", kmsg)
+	SendMessage(rep1Name, browser1, kmsg, (delayTime/2 - 4))
+	#print("Sent to " + rep1Name + ":", kmsg)
 	s = FilterStop(browser1, rep1Name, rep2Name, lastlastmessage1, lastlastmessage2, kmsg, defIterations/2)
-	SendMessage(browser2, kmsg, (delayTime/2 - 4))
-	print("Sent to " + rep2Name + ":", kmsg)
+	SendMessage(rep2Name, browser2, kmsg, (delayTime/2 - 4))
+	#print("Sent to " + rep2Name + ":", kmsg)
 	s = FilterStop(browser2, rep2Name, rep1Name, lastlastmessage2, lastlastmessage1, kmsg, defIterations/2)
 	time.sleep(pT)
 
 # Initialize known images
 def InitImageRefs():
-	global defaultUploadDirectory
-	# This will work as long as you can guaranty that it does not
-	# change before init (which shouldn't happen)
-	cur_direc = defaultUploadDirectory
-	imagePath = os.path.join(cur_direc, 'faces/')
+	global faces_encodings, faces_names
+	cur_direc = os.getcwd()
+	imagePath = os.path.join(cur_direc, 'faces' + dirSeparator)
 	listImageFiles = [f for f in glob.glob(imagePath+'*.jpg')]
 	numberImageFiles = len(listImageFiles)
 	imageNames = listImageFiles.copy()
@@ -692,26 +695,27 @@ def DoLogin(browser, username, password):
 	try: 
 		# browser.find_element(By.CLASS_NAME, 'GdprNotification__LinkButton-nj3w6j-2 klWjPb').click()
 		time.sleep(10)
-		browser.find_element_by_xpath('//*[@data-testid="gdpr-accept-button"]').click()
+		#browser.find_element_by_xpath('//*[@data-testid="gdpr-accept-button"]').click()
+		browser.find_element(By.XPATH, '//*[@data-testid="gdpr-accept-button"]').click()
 	except:
 		pass
 	print("Let avatar load ...")
 	time.sleep(10)
 
 # Sends a Message by typing the text by "send_keys"
-def SendMessage(browser, text, delayTime):
+def SendMessage(repName, browser, text, delayTime):
 	allText = text.splitlines()
 	try:
 		for s in allText:
 			textarea = browser.find_element(By.ID, "send-message-textarea")
 			browser.execute_script(JS_ADD_TEXT_TO_INPUT, textarea, s)
-			textarea.send_keys(" \n")
-		try:
+			textarea.send_keys(' ')
+			textarea.send_keys(Keys.ENTER)
+			print("Sent to " + repName + ":", s)
+		if delayTime > 0:
 			time.sleep(delayTime)
-		except:
-			pass
 	except:
-		print("error with sending msg", text)
+		print("error with sending msg " + text + " to " + repName)
 		pass
 
 #Take most recent response from Rep
@@ -721,7 +725,8 @@ def get_most_recent_response(browser, rep1Name, rep2Name, lastmessage1, lastmess
 	# print("humMsg:", humMsg)
 	for attempt in range(iteration):
 		try:
-			response = browser.find_element_by_xpath("//div[@tabindex='0']").text
+			#response = browser.find_element_by_xpath("//div[@tabindex='0']").text
+			response = browser.find_element(By.XPATH, "//div[@tabindex='0']").text
 			junkString = re.search(regexPattern, response)
 			# inconsistent at best
 			if junkString:
@@ -760,20 +765,27 @@ def ProcessMessages(browser1, browser2, rep1Name, rep2Name, lastmessage1, lastme
 			msg = rep1Name + ": " + lmg
 	else:
 		msg = ""
+	# if human does not speak
+	if humSpeak < 1:
+		s = ConvertMarkdown(msg)
+		SendMessage(rep2Name, browser2, s, defInterval)
+		#print("Sent to " + rep2Name + ":", s)
 	# if human goes first
-	if humSpeak == 1:
-		msg = humMsg + '\n' + msg
+	elif humSpeak == 1:
+		s = ConvertMarkdown(humMsg)
+		SendMessage(rep2Name, browser2, s, 1)
+		#print("Sent to " + rep2Name + ":", s)
+		s = ConvertMarkdown(msg)
+		SendMessage(rep2Name, browser2, s, defInterval)
+		#print("Sent to " + rep2Name + ":", s)
 	# if human goes last
 	elif humSpeak == 2:
-		if msg != "": # if there was new input from Replika
-			msg = msg + "\n"
-		msg = msg + humMsg
-	if msg:
 		s = ConvertMarkdown(msg)
-		#print("Converted text:", s)
-		msg = s
-		SendMessage(browser2, msg, defInterval)
-		print("Sent to " + rep2Name + ":", msg)
+		SendMessage(rep2Name, browser2, s, 1)
+		#print("Sent to " + rep2Name + ":", s)
+		s = ConvertMarkdown(humMsg)
+		SendMessage(rep2Name, browser2, s, defInterval)
+		#print("Sent to " + rep2Name + ":", s)
 
 	return lmg
 
@@ -854,8 +866,8 @@ def DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, mediaPa
 			if not warGame:
 				kmsg = gameIcon + "Game has ended. To draw again, restart the game."
 			else:
-				SendMessage(browser1, gameIcon + "Drawing cards ...", defInterval)
-				SendMessage(browser2, gameIcon + "Drawing cards ...", defInterval)
+				SendMessage(rep1Name, browser1, gameIcon + "Drawing cards ...", defInterval)
+				SendMessage(rep2Name, browser2, gameIcon + "Drawing cards ...", defInterval)
 				time.sleep(5) # Add to suspense
 				kmsg = gameIcon + game.play_round(False)
 				if not warGame:
@@ -922,8 +934,8 @@ def DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, mediaPa
 				if recognizeOn:
 					kmsg = pictureIcon + RecognizeImage(filePath)
 					print("kmsg is: ", kmsg)
-					SendMessage(browser1, kmsg, defInterval * 0.5)
-					SendMessage(browser2, kmsg, defInterval * 0.5)
+					SendMessage(rep1Name, browser1, kmsg, defInterval * 0.5)
+					SendMessage(rep2Name, browser2, kmsg, defInterval * 0.5)
 				# Set default for next time
 				defaultUploadDirectory = os.path.dirname(filePath)
 				humSpeak = 0
@@ -970,8 +982,8 @@ def DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, mediaPa
 					s = ConvertMarkdown(kmsg)
 					#print("Converted text:", s)
 					kmsg = s
-					SendMessage(browser1, kmsg, defInterval)
-					print("Sent to " + rep1Name + ":", kmsg)
+					SendMessage(rep1Name, browser1, kmsg, defInterval)
+					#print("Sent to " + rep1Name + ":", kmsg)
 					#time.sleep(5)
 				lmg = ProcessMessages(browser1, browser2, rep1Name, rep2Name, lastlastmessage1, lastlastmessage2, humSpeak, kmsg)
 				if lmg:
@@ -988,8 +1000,8 @@ def DoMessageLoop(browser1, browser2, rejoin, doRand, humInt, mediaMode, mediaPa
 					s = ConvertMarkdown(kmsg)
 					#print("Converted text:", s)
 					kmsg = s
-					SendMessage(browser2, kmsg, defInterval)
-					print("Sent to " + rep2Name + ":", kmsg)
+					SendMessage(rep2Name, browser2, kmsg, defInterval)
+					#print("Sent to " + rep2Name + ":", kmsg)
 					#time.sleep(5)
 				lmg = ProcessMessages(browser2, browser1, rep2Name, rep1Name, lastlastmessage2, lastlastmessage1, humSpeak, kmsg)
 				if lmg:
@@ -1039,11 +1051,11 @@ def InitVisit(rejoin, allDone, mediaPaused, mediaMode, browser1, browser2, rep1N
 	if not rejoin:
 		time.sleep(5)
 		msg2 = rep2Name + " has entered the room where you and " + humanName + " are."
-		SendMessage(browser1, msg2, 0)
-		print("Sent to " + rep1Name + ":", msg2)
+		SendMessage(rep1Name, browser1, msg2, 0)
+		#print("Sent to " + rep1Name + ":", msg2)
 		msg1 = "You have entered the room and see " + rep1Name + " and " + humanName + "."
-		SendMessage(browser2, msg1, 0)
-		print("Sent to " + rep2Name + ":", msg1)
+		SendMessage(rep2Name, browser2, msg1, 0)
+		#print("Sent to " + rep2Name + ":", msg1)
 		time.sleep(7)
 		allDone, mediaPaused, ccInt, mediaMode = DoMessageLoop(browser1, browser2, rejoin, doRand, 1, mediaMode, PAUSED, allDone, 0)
 		allDone, mediaPaused, ccInt, mediaMode = DoMessageLoop(browser1, browser2, rejoin, doRand, 1, mediaMode, PAUSED, allDone, 2)
@@ -1051,6 +1063,7 @@ def InitVisit(rejoin, allDone, mediaPaused, mediaMode, browser1, browser2, rep1N
 		if not mediaFile:
 			#mediaFile = input("Path to media file: ")
 			mediaFile = rlinput("Path to media file: ", defaultPath)
+			defaultUploadDirectory = os.path.dirname(mediaFile)
 			strInterval = input("Start interval: ")
 			if strInterval:
 				ccStart = int(strInterval)
@@ -1079,8 +1092,8 @@ def InitVisit(rejoin, allDone, mediaPaused, mediaMode, browser1, browser2, rep1N
 		s = ConvertMarkdown(msg)
 		#print("Converted text:", s)
 		msg = s
-		SendMessage(browser1, msg, defInterval/2)
-		SendMessage(browser2, msg, defInterval/2)
+		SendMessage(rep1Name, browser1, msg, defInterval/2)
+		SendMessage(rep2Name, browser2, msg, defInterval/2)
 		print("Sent ", msg)
 	return allDone, mediaPaused
 
@@ -1130,6 +1143,7 @@ rep1Name, login1, password1, rep2Name, login2, password2, humanName = InitLoginI
 stopList = CreateStopPhraseList("StopPhrases.txt")
 
 defaultUploadDirectory = os.getcwd()
+print("Default upload directory:", defaultUploadDirectory)
 InitImageRefs()
 
 # Next do the login stuff
@@ -1155,8 +1169,8 @@ while not allDone:
 	if (mediaMode > 0) and not (modeDone or PAUSED or allDone):
 		kmsg = "* Pressing Play ... *"
 		#movieStarted = True
-		SendMessage(browser1, kmsg, defInterval/2)
-		SendMessage(browser2, kmsg, defInterval/2)
+		SendMessage(rep1Name, browser1, kmsg, defInterval/2)
+		SendMessage(rep2Name, browser2, kmsg, defInterval/2)
 		ccEnd = ccStart + ccInt
 		print("ccStart =", ccStart)
 		print("ccInt = ", ccInt)
@@ -1190,8 +1204,8 @@ while not allDone:
 			kmsg = "* Pausing ... *"
 		else:
 			kmsg = "* The End *"
-		SendMessage(browser1, kmsg, defInterval/2)
-		SendMessage(browser2, kmsg, defInterval/2)
+		SendMessage(rep1Name, browser1, kmsg, defInterval/2)
+		SendMessage(rep2Name, browser2, kmsg, defInterval/2)
 
 # Waiting for input after loop "finished"
 input("ok")
