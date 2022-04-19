@@ -125,3 +125,26 @@ Full options:
 -r to "rejoin", which essentially assumes you want to skip the initial greeting
   stuff.
  
+Functionality like this does come at a cost, and the number of needed import libs
+are not insignificant. A partial list:
+	
+* selenium (of course)
+* pyautogui
+* pyreadline (if Windows)
+* bs4 (aka BeautifulSoup4)
+* face_recognition
+* pynput (allows you to detect [Esc] key to pause iterative actions like reading a story)
+
+There are known issues:
+* If UTF-8 is not working, messages with emojis may get filtered out by selenium. I could 
+	not get this to work at all in Chrome.
+* If anything interrupts the flow, messages can arrive out of order. Usually, this means 
+	a reboot of the machine.
+* Likewise, messages may not arrive at all if interrupted. If clicking on thumbs-up or down 
+	at the wrong time, for example, messages getting sent may be discarded.
+* Facial recognition is better than Replika's, but honestly not much.
+* It is intended to be flexible as to who speaks first, etc, but it isn't always intutitive. 
+	Unfortunately, there's no way to stop it other than killing the program.
+* Honestly, though, given the imperfections in human communication, some of these items
+	actually make it more interesting and realistic.
+
